@@ -96,7 +96,7 @@ def build_patient_context(db: Session, patient_id: int) -> Dict[str, Any]:
         for m in matching_meals:
             m_dict = {
                 "id": str(m.id),
-                "name": m.name,
+                "name": getattr(m, "meal_name", getattr(m, "name", "Ayurvedic Meal")),
                 "type": m.meal_type,
                 "description": m.description or "",
                 "ingredients": m.ingredients or [],

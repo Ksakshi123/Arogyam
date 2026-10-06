@@ -79,8 +79,8 @@ def submit_dosha_assessment(payload: DoshaAssessmentCreate, db: Session = Depend
     )
 
 
-@router.get("/result/{patient_id}", response_model=DoshaResultResponse)
-def get_latest_result(patient_id: int, db: Session = Depends(get_db)):
+@router.get("/result/{patient_id}", response_model=Optional[DoshaResultResponse])
+def get_latest_result(patient_id: str, db: Session = Depends(get_db)):
     patient = _get_patient_or_404(db, patient_id)
     latest_result = (
         db.query(DoshaResult)
@@ -89,10 +89,7 @@ def get_latest_result(patient_id: int, db: Session = Depends(get_db)):
         .first()
     )
     if not latest_result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No Dosha assessment found for this patient"
-        )
+        return None
 
     return DoshaResultResponse(
         id=latest_result.id,
@@ -110,7 +107,7 @@ def get_latest_result(patient_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/history/{patient_id}", response_model=List[DoshaHistoryItem])
-def get_dosha_history(patient_id: int, db: Session = Depends(get_db)):
+def get_dosha_history(patient_id: str, db: Session = Depends(get_db)):
     patient = _get_patient_or_404(db, patient_id)
     history = (
         db.query(DoshaResult)

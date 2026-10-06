@@ -4,12 +4,15 @@ import { Button } from "@/components/ui/button";
 import { usePatientStore } from "../store/patientStore";
 import { useDietStore } from "../store/dietStore";
 import { DietPlanService } from "../services/dietPlanService";
+import { dietApi } from "../services/dietApi";
 import MealCard from "../components/patient/MealCard";
 import RecipeDialog from "../components/patient/RecipeDialog";
-import { ShoppingCart, RefreshCw, Zap, Search, Leaf, CheckCircle2, ChefHat } from "lucide-react";
+import { ShoppingCart, RefreshCw, Zap, Search, Leaf, CheckCircle2, ChefHat, Sparkles, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Meal } from "../types/meal";
+import { DoshaResult, DoshaType } from "../types/dosha";
+import { dbGetSession } from "@/lib/db";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -18,7 +21,7 @@ import PatientNavBar from "../components/patient/PatientNavBar";
 const WeeklyMealPlan = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { profile, doshaResult, userId } = usePatientStore();
+  const { profile, doshaResult, userId, isLoading, loadFromDB } = usePatientStore();
   const { weeklyPlan, setWeeklyPlan, updateMeal, markMealStatus, completions } = useDietStore();
   
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
@@ -29,42 +32,87 @@ const WeeklyMealPlan = () => {
   const [swapOptions, setSwapOptions] = useState<Meal[]>([]);
   const [isGroceryModalOpen, setIsGroceryModalOpen] = useState(false);
 
-  const generateNewPlan = useCallback(() => {
-    if (!profile || !doshaResult) return;
+  const effectiveDosha: DoshaResult = doshaResult || {
+    vata: 33,
+    pitta: 34,
+    kapha: 33,
+    primaryDosha: "Vata" as DoshaType,
+    secondaryDosha: "Pitta" as DoshaType,
+    constitution: "Tridoshic (Balanced)",
+    assessmentDate: new Date().toISOString(),
+  };
+
+  const generateNewPlan = useCallback(async () => {
+    if (!profile) return;
     setIsGenerating(true);
-    setTimeout(() => {
-      const plan = DietPlanService.generateWeeklyPlan(profile, doshaResult, userId || undefined);
-      setWeeklyPlan(plan);
+    const activeUid = userId || dbGetSession() || 1;
+
+    try {
+      // 1. Primary: Generate 7-day Ayurvedic meal plan via backend Groq LLM
+      const remotePlan = await dietApi.generateWeeklyPlan(activeUid);
+      if (remotePlan && remotePlan.days && remotePlan.days.length >= 7) {
+        setWeeklyPlan(remotePlan);
+        toast({
+          title: "AI Meal Plan Generated 🌿",
+          description: `Personalized 7-day plan prepared via Groq LLM for ${profile.fullName} (${effectiveDosha.constitution}).`,
+        });
+        return;
+      }
+    } catch (err) {
+      console.warn("Backend Groq LLM generation error, falling back to local generator:", err);
+    } finally {
       setIsGenerating(false);
-      toast({
-        title: "Plan Generated 🌿",
-        description: `Fresh 7-day plan prepared for ${profile.fullName} (${doshaResult.constitution}).`,
-      });
-    }, 1500);
-  }, [profile, doshaResult, userId, setWeeklyPlan, toast]);
+    }
+
+    // 2. Fallback to client-side rule-based generator if backend is unavailable
+    const fallbackPlan = DietPlanService.generateWeeklyPlan(profile, effectiveDosha, userId || undefined);
+    setWeeklyPlan(fallbackPlan);
+    toast({
+      title: "Plan Generated 🌿",
+      description: `Fresh 7-day plan prepared for ${profile.fullName} (${effectiveDosha.constitution}).`,
+    });
+  }, [profile, effectiveDosha, userId, setWeeklyPlan, toast]);
 
   useEffect(() => {
-    if (!profile || !doshaResult) {
-      navigate("/patient/onboarding");
+    if (isLoading) return;
+
+    if (!profile) {
+      const activeUid = userId || dbGetSession();
+      if (activeUid) {
+        loadFromDB(activeUid);
+      } else {
+        navigate("/patient/login");
+      }
       return;
     }
     
     // Check if existing plan belongs to another user or if no plan exists
-    const currentUid = userId || localStorage.getItem("arogyam_session");
+    const currentUid = userId || dbGetSession() || 1;
     const isOtherUserPlan = weeklyPlan?.userId && currentUid && String(weeklyPlan.userId) !== String(currentUid);
 
     if (!weeklyPlan || isOtherUserPlan) {
-      generateNewPlan();
+      // Load active plan from backend first, or generate new
+      dietApi.getCurrentPlan(currentUid)
+        .then((remotePlan) => {
+          if (remotePlan && remotePlan.days && remotePlan.days.length >= 7) {
+            setWeeklyPlan(remotePlan);
+          } else {
+            generateNewPlan();
+          }
+        })
+        .catch(() => {
+          generateNewPlan();
+        });
     }
-  }, [profile, doshaResult, weeklyPlan, userId, navigate, generateNewPlan]);
+  }, [profile, isLoading, weeklyPlan, userId, navigate, generateNewPlan, loadFromDB, setWeeklyPlan]);
 
   const handleMealClick = (meal: Meal, type: "breakfast"|"lunch"|"dinner") => {
     setSelectedMeal({ meal, type });
   };
 
   const handleSwapClick = () => {
-    if (!selectedMeal || !profile || !doshaResult) return;
-    const alternatives = DietPlanService.getAlternatives(selectedMeal.meal, profile, doshaResult);
+    if (!selectedMeal || !profile) return;
+    const alternatives = DietPlanService.getAlternatives(selectedMeal.meal, profile, effectiveDosha);
     setSwapOptions(alternatives);
     setIsSwapModalOpen(true);
   };
@@ -135,7 +183,7 @@ const WeeklyMealPlan = () => {
           <div>
             <h1 className="text-3xl font-bold">Your Weekly Diet Plan</h1>
             <p className="text-muted-foreground mt-1">
-              Personalized for {doshaResult?.constitution} • {profile?.dietPreference}
+              Personalized for {effectiveDosha.constitution} • {profile?.dietPreference || "Ayurvedic Nutrition"}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -158,6 +206,22 @@ const WeeklyMealPlan = () => {
             </Button>
           </div>
         </div>
+
+        {/* Banner if Dosha Quiz is pending */}
+        {!doshaResult && (
+          <div className="mb-8 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-amber-600 shrink-0" />
+              <div>
+                <h4 className="font-semibold text-foreground text-sm">Showing Balanced Tridoshic Meal Plan</h4>
+                <p className="text-xs text-muted-foreground">Complete your 15-question Dosha Assessment to customize meals specifically to your body constitution.</p>
+              </div>
+            </div>
+            <Button size="sm" onClick={() => navigate("/patient/dosha-assessment")} className="shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-sm">
+              Personalize via Quiz <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </div>
+        )}
 
         {/* Horizontal Day Selector */}
         <div className="bg-card border shadow-sm rounded-xl p-2 mb-8 overflow-x-auto hide-scrollbar">
@@ -204,41 +268,46 @@ const WeeklyMealPlan = () => {
 
       {/* Meal Detail Dialog */}
       <Dialog open={!!selectedMeal} onOpenChange={() => setSelectedMeal(null)}>
-        <DialogContent className="sm:max-w-xl p-0 overflow-hidden">
+        <DialogContent className="sm:max-w-xl p-0 overflow-hidden max-h-[90vh] flex flex-col rounded-2xl">
           {selectedMeal && (
             <>
-              <div className="bg-primary/10 p-6 pb-4">
-                <div className="uppercase text-xs font-bold tracking-wider text-primary mb-2">
-                  {selectedMeal.type}
+              <div className="bg-primary/10 p-6 pb-4 flex-shrink-0 border-b border-border/50">
+                <div className="uppercase text-xs font-bold tracking-wider text-primary mb-2 flex items-center gap-2">
+                  <span>{selectedMeal.type}</span>
+                  <span>•</span>
+                  <span>{selectedMeal.meal.preparationTime} mins prep</span>
                 </div>
-                <DialogTitle className="text-2xl">{selectedMeal.meal.name}</DialogTitle>
-                <DialogDescription className="text-base mt-2">
+                <DialogTitle className="text-2xl font-bold">{selectedMeal.meal.name}</DialogTitle>
+                <DialogDescription className="text-sm mt-1.5 line-clamp-2">
                   {selectedMeal.meal.description}
                 </DialogDescription>
               </div>
-              <div className="p-6">
+              <div className="p-6 flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-6">
                 <Tabs defaultValue="nutrition">
-                  <TabsList className="w-full grid grid-cols-2 mb-6">
-                    <TabsTrigger value="nutrition">Nutrition & AI Insight</TabsTrigger>
-                    <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
+                  <TabsList className="w-full grid grid-cols-3 mb-6">
+                    <TabsTrigger value="nutrition" className="text-xs">Nutrition & AI</TabsTrigger>
+                    <TabsTrigger value="ingredients" className="text-xs">Ingredients</TabsTrigger>
+                    <TabsTrigger value="recipe" className="text-xs flex items-center gap-1.5">
+                      <ChefHat className="w-3.5 h-3.5 text-primary" /> Recipe Steps
+                    </TabsTrigger>
                   </TabsList>
                   <TabsContent value="nutrition" className="space-y-4">
-                    <div className="grid grid-cols-4 gap-4 bg-muted/50 p-4 rounded-xl text-center">
+                    <div className="grid grid-cols-4 gap-3 bg-muted/50 p-4 rounded-xl text-center">
                       <div>
-                        <div className="text-2xl font-bold text-orange-500">{selectedMeal.meal.calories}</div>
-                        <div className="text-xs text-muted-foreground uppercase">Kcal</div>
+                        <div className="text-xl sm:text-2xl font-bold text-orange-500">{selectedMeal.meal.calories}</div>
+                        <div className="text-[10px] sm:text-xs text-muted-foreground uppercase">Kcal</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-blue-500">{selectedMeal.meal.protein}g</div>
-                        <div className="text-xs text-muted-foreground uppercase">Protein</div>
+                        <div className="text-xl sm:text-2xl font-bold text-blue-500">{selectedMeal.meal.protein}g</div>
+                        <div className="text-[10px] sm:text-xs text-muted-foreground uppercase">Protein</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-green-500">{selectedMeal.meal.carbohydrates}g</div>
-                        <div className="text-xs text-muted-foreground uppercase">Carbs</div>
+                        <div className="text-xl sm:text-2xl font-bold text-green-500">{selectedMeal.meal.carbohydrates}g</div>
+                        <div className="text-[10px] sm:text-xs text-muted-foreground uppercase">Carbs</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold text-yellow-500">{selectedMeal.meal.fats}g</div>
-                        <div className="text-xs text-muted-foreground uppercase">Fats</div>
+                        <div className="text-xl sm:text-2xl font-bold text-yellow-500">{selectedMeal.meal.fats}g</div>
+                        <div className="text-[10px] sm:text-xs text-muted-foreground uppercase">Fats</div>
                       </div>
                     </div>
                     {selectedMeal.meal.explanation && (
@@ -246,42 +315,69 @@ const WeeklyMealPlan = () => {
                         <Zap className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                         <div>
                           <div className="font-medium text-sm mb-1 text-primary">Why this meal?</div>
-                          <p className="text-sm text-muted-foreground">{selectedMeal.meal.explanation}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">{selectedMeal.meal.explanation}</p>
                         </div>
                       </div>
                     )}
                   </TabsContent>
                   <TabsContent value="ingredients">
-                    <ul className="grid grid-cols-2 gap-2">
-                      {selectedMeal.meal.ingredients.map(ing => (
-                        <li key={ing} className="flex items-center gap-2 text-sm p-2 bg-accent/30 rounded-md border border-border/50">
-                          <Leaf className="w-4 h-4 text-green-600" />
-                          {ing}
-                        </li>
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground mb-2">Required fresh ingredients:</p>
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {selectedMeal.meal.ingredients.map((ing) => (
+                          <li key={ing} className="flex items-center gap-2 text-sm p-2.5 bg-accent/30 rounded-lg border border-border/50">
+                            <Leaf className="w-4 h-4 text-green-600 flex-shrink-0" />
+                            <span className="truncate">{ing}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="recipe" className="space-y-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-muted-foreground">Step-by-step instructions:</p>
+                      <Badge variant="outline" className="text-[10px]">
+                        {selectedMeal.meal.recipe?.steps.length || 5} Steps
+                      </Badge>
+                    </div>
+                    <div className="space-y-2.5">
+                      {(selectedMeal.meal.recipe?.steps || [
+                        `Prepare and rinse ${selectedMeal.meal.ingredients.slice(0, 3).join(", ")}.`,
+                        `Heat 1 tsp ghee or cold-pressed oil with cumin seeds on medium flame.`,
+                        `Add the fresh ingredients, Himalayan pink salt, and spices.`,
+                        `Simmer gently until tender and aromatic.`,
+                        `Garnish with fresh cilantro and serve warm for optimal Agni.`
+                      ]).map((step, idx) => (
+                        <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-card border border-border/70 text-left">
+                          <div className="w-6 h-6 rounded-lg bg-primary/10 text-primary font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                            {idx + 1}
+                          </div>
+                          <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">{step}</p>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   </TabsContent>
                 </Tabs>
-                <div className="flex flex-col sm:flex-row gap-3 mt-8 pt-6 border-t">
+                <div className="flex flex-col sm:flex-row gap-2.5 pt-4 border-t border-border">
                   <Button 
                     variant="secondary" 
-                    className="flex-1 border border-border"
+                    className="flex-1 text-xs"
                     onClick={() => {
                       if (selectedMeal) setRecipeMeal(selectedMeal.meal);
                     }}
                   >
-                    <ChefHat className="w-4 h-4 mr-2 text-primary" /> View Recipe
+                    <ChefHat className="w-3.5 h-3.5 mr-1.5 text-primary" /> Full Recipe Modal
                   </Button>
-                  <Button variant="outline" className="flex-1" onClick={handleSwapClick}>
-                    <RefreshCw className="w-4 h-4 mr-2" /> Swap Meal
+                  <Button variant="outline" className="flex-1 text-xs" onClick={handleSwapClick}>
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Swap Meal
                   </Button>
                   {!isMealCompleted(selectedMeal.meal.id, selectedDay.date) ? (
-                    <Button className="flex-1 btn-wellness" onClick={handleMarkComplete}>
-                      <CheckCircle2 className="w-4 h-4 mr-2" /> Mark Done
+                    <Button className="flex-1 btn-wellness text-xs" onClick={handleMarkComplete}>
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Done
                     </Button>
                   ) : (
-                    <Button disabled className="flex-1 bg-green-600 text-white opacity-100">
-                      <CheckCircle2 className="w-4 h-4 mr-2" /> Completed
+                    <Button disabled className="flex-1 bg-green-600 text-white opacity-100 text-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Completed
                     </Button>
                   )}
                 </div>

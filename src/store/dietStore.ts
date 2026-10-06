@@ -10,6 +10,7 @@ import {
   dbGetSession,
   dbSaveWeeklyPlan,
 } from "@/lib/db";
+import { usePatientStore } from "./patientStore";
 
 interface DietState {
   weeklyPlan: WeeklyMealPlan | null;
@@ -58,7 +59,7 @@ export const useDietStore = create<DietState>()(
       },
 
       loadWeeklyPlan: async (patientId) => {
-        const uid = patientId || dbGetSession();
+        const uid = patientId || usePatientStore.getState().userId || dbGetSession();
         if (!uid) {
           set({ weeklyPlan: null, completions: [], isLoading: false });
           return null;
@@ -147,7 +148,7 @@ export const useDietStore = create<DietState>()(
           return { completions: [...state.completions, completion] };
         });
 
-        const userId = dbGetSession();
+        const userId = usePatientStore.getState().userId || dbGetSession();
         if (userId) {
           // 1. Sync to PostgreSQL backend
           try {

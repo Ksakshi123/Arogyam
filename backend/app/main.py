@@ -52,13 +52,14 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Connecting to database and ensuring schema tables exist...")
         Base.metadata.create_all(bind=engine)
-        logger.info("Database schema synchronized successfully.")
+        print("  [DATABASE] Schema synchronized: All tables verified/created.\n", flush=True)
     except Exception as e:
         logger.warning(
             f"Notice: Could not automatically create tables on startup ({e}). "
             "Please ensure PostgreSQL is running and credentials in .env are correct."
         )
     yield
+
 
 
 app = FastAPI(
@@ -73,13 +74,7 @@ app = FastAPI(
 # Allow requests from Vite frontend dev server (port 8080 or 5173)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:8080",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

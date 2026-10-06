@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from datetime import datetime
 
 
 class DoshaAssessmentCreate(BaseModel):
-    patient_id: Optional[int] = None
+    patient_id: Optional[Union[int, str]] = None
     answers: Dict[str, str]                              # {questionId: optionId}
 
 

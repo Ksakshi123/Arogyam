@@ -19,6 +19,7 @@ class PatientProfile(Base):
     activity_level = Column(String, nullable=True)
 
     diet_preference = Column(String, nullable=True)
+    food_preferences = Column(JSON, nullable=True)      # list of strings (e.g. regional cuisines)
     wellness_goals = Column(JSON, nullable=True)         # list of strings
     allergies = Column(JSON, nullable=True)              # list of strings
     food_restrictions = Column(JSON, nullable=True)      # list of strings

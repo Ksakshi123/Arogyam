@@ -65,7 +65,6 @@ export const usePatientStore = create<PatientState>()(
             // New user login -> wipe stale cached profile & assessments
             set({ profile: null, doshaResult: null, hasCompletedOnboarding: false });
           }
-          get().loadFromDB(userId);
         }
       },
 

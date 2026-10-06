@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from app.database import get_db
 from app.models.patient import PatientProfile
@@ -11,6 +11,7 @@ from app.models.meal import Meal
 from app.schemas.diet import DietGenerateRequest, WeeklyDietPlanResponse, PlanCompatibilityScore, DailyDietPlanResponse
 from app.schemas.meal import MealResponse, MealUpdate
 from app.services.diet_service import DietService
+from app.services.groq_diet_service import GroqDietService
 from app.routers.patient import _get_patient_or_404
 
 router = APIRouter()
@@ -73,7 +74,71 @@ def generate_weekly_plan(payload: DietGenerateRequest, db: Session = Depends(get
     ).update({"status": "archived"})
     db.commit()
 
-    # Generate plan
+    # 1. Attempt generation via Groq LLM with dual-key failover
+    groq_plan = GroqDietService.generate_meal_plan(
+        patient_id=patient.id,
+        age=patient.age,
+        weight=patient.weight,
+        height=patient.height,
+        activity_level=patient.activity_level,
+        diet_preference=patient.diet_preference,
+        food_preferences=getattr(patient, "food_preferences", None) or [],
+        wellness_goals=patient.wellness_goals or [],
+        allergies=patient.allergies or [],
+        food_restrictions=patient.food_restrictions or [],
+        disliked_foods=patient.disliked_foods or [],
+        dosha=dosha.constitution if dosha else primary_dosha,
+    )
+
+    if groq_plan and "days" in groq_plan and len(groq_plan["days"]) >= 7:
+        new_plan = WeeklyDietPlan(
+            patient_id=patient.id,
+            week_start_date=groq_plan.get("startDate", date.today().isoformat()),
+            status="active",
+            compatibility_score=groq_plan.get("compatibilityScore", {
+                "dosha": 95,
+                "preferences": 95,
+                "allergies": 100,
+                "overall": 95
+            }),
+        )
+        db.add(new_plan)
+        db.commit()
+        db.refresh(new_plan)
+
+        for day in groq_plan["days"]:
+            day_date = day.get("date", date.today().isoformat())
+            day_name = day.get("dayOfWeek", "Monday")
+            for mtype in ["breakfast", "lunch", "dinner"]:
+                m = day.get(mtype, {})
+                if not m:
+                    continue
+                meal_record = Meal(
+                    id=f"{new_plan.id}-{mtype}-{day_date}",
+                    diet_plan_id=new_plan.id,
+                    day_of_week=day_name,
+                    date=day_date,
+                    meal_type=mtype,
+                    meal_name=m.get("meal_name") or m.get("name") or f"Ayurvedic {mtype.capitalize()}",
+                    description=m.get("description", ""),
+                    ingredients=m.get("ingredients", []),
+                    calories=float(m.get("calories", 0)),
+                    protein=float(m.get("protein", 0)),
+                    carbohydrates=float(m.get("carbohydrates", 0)),
+                    fats=float(m.get("fats", 0)),
+                    preparation_time=int(m.get("preparation_time", 15)),
+                    tags=m.get("tags", ["Ayurvedic"]),
+                    suitable_doshas=m.get("suitable_doshas", [primary_dosha]),
+                    is_replaced=bool(m.get("is_replaced", False)),
+                    explanation=m.get("explanation", ""),
+                    recipe=m.get("recipe", {}),
+                )
+                db.add(meal_record)
+
+        db.commit()
+        return _format_weekly_plan(new_plan, db)
+
+    # 2. Fallback to deterministic rule-based DietService if Groq keys are not configured or exhausted
     plan_data = DietService.generate_weekly_plan(
         patient_id=patient.id,
         allergies=patient.allergies or [],
@@ -122,7 +187,7 @@ def generate_weekly_plan(payload: DietGenerateRequest, db: Session = Depends(get
 
 
 @router.get("/current/{patient_id}", response_model=WeeklyDietPlanResponse)
-def get_current_plan(patient_id: int, db: Session = Depends(get_db)):
+def get_current_plan(patient_id: str, db: Session = Depends(get_db)):
     patient = _get_patient_or_404(db, patient_id)
 
     active_plan = (

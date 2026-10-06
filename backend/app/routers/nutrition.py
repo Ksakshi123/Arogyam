@@ -12,17 +12,27 @@ from app.routers.patient import _get_patient_or_404
 router = APIRouter()
 
 
+from app.models.meal import Meal
+
+
 @router.post("/meal-completion", response_model=MealCompletionResponse)
 def log_meal_completion(payload: MealCompletionCreate, db: Session = Depends(get_db)):
     patient = _get_patient_or_404(db, payload.patient_id)
+
+    # Check if meal exists in meals table to avoid foreign key violation
+    safe_meal_id = None
+    if payload.meal_id:
+        meal_record = db.query(Meal).filter(Meal.id == payload.meal_id).first()
+        if meal_record:
+            safe_meal_id = meal_record.id
 
     # Check for existing record for this meal and date
     existing = (
         db.query(MealCompletion)
         .filter(
             MealCompletion.patient_id == patient.id,
-            MealCompletion.meal_id == payload.meal_id,
-            MealCompletion.date == payload.date
+            MealCompletion.date == payload.date,
+            (MealCompletion.meal_id == safe_meal_id) if safe_meal_id else (MealCompletion.date == payload.date)
         )
         .first()
     )
@@ -30,13 +40,17 @@ def log_meal_completion(payload: MealCompletionCreate, db: Session = Depends(get
     if existing:
         existing.status = payload.status
         existing.replacement_meal_id = payload.replacement_meal_id
+        if safe_meal_id:
+            existing.meal_id = safe_meal_id
         db.commit()
         db.refresh(existing)
-        return MealCompletionResponse.model_validate(existing)
+        resp = MealCompletionResponse.model_validate(existing)
+        resp.meal_id = payload.meal_id
+        return resp
 
     new_completion = MealCompletion(
         patient_id=patient.id,
-        meal_id=payload.meal_id,
+        meal_id=safe_meal_id,
         date=payload.date,
         status=payload.status,
         replacement_meal_id=payload.replacement_meal_id,
@@ -45,11 +59,13 @@ def log_meal_completion(payload: MealCompletionCreate, db: Session = Depends(get
     db.add(new_completion)
     db.commit()
     db.refresh(new_completion)
-    return MealCompletionResponse.model_validate(new_completion)
+    resp = MealCompletionResponse.model_validate(new_completion)
+    resp.meal_id = payload.meal_id
+    return resp
 
 
 @router.get("/{patient_id}", response_model=NutritionAnalyticsResponse)
-def get_nutrition_analytics(patient_id: int, db: Session = Depends(get_db)):
+def get_nutrition_analytics(patient_id: str, db: Session = Depends(get_db)):
     patient = _get_patient_or_404(db, patient_id)
 
     streak = NutritionService.calculate_streak(db, patient.id)

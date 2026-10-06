@@ -33,13 +33,27 @@ class DietService:
     def matches_diet_preference(cls, meal: Dict[str, Any], preference: Optional[str]) -> bool:
         if not preference:
             return True
-        pref = preference.lower()
+        pref = preference.lower().strip()
         ingredients = [str(i).lower() for i in meal.get("ingredients", [])]
+        name = str(meal.get("name", "")).lower()
+        all_text = " ".join(ingredients + [name])
 
-        if pref == "vegan" and any(dairy in ingredients for dairy in ["ghee", "milk", "paneer", "yogurt"]):
-            return False
-        if pref == "jain" and any(root in ingredients for root in ["onion", "garlic", "potato"]):
-            return False
+        non_veg_keywords = ["chicken", "meat", "mutton", "fish", "prawn", "seafood", "egg"]
+        dairy_keywords = ["ghee", "milk", "paneer", "yogurt", "curd", "dahi", "butter"]
+        jain_root_keywords = ["onion", "garlic", "potato", "aloo", "batata", "carrot", "radish", "beetroot", "ginger"]
+
+        if pref in ("vegetarian", "veg"):
+            if any(k in all_text for k in non_veg_keywords):
+                return False
+
+        if pref == "vegan":
+            if any(k in all_text for k in non_veg_keywords + dairy_keywords):
+                return False
+
+        if pref == "jain":
+            if any(k in all_text for k in non_veg_keywords + jain_root_keywords):
+                return False
+
         return True
 
     @classmethod

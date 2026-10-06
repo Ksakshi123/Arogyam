@@ -48,9 +48,11 @@ export const nutritionApi = {
     patientId: number | string,
     completion: MealCompletion
   ): Promise<MealCompletion> => {
+    const numId = Number(patientId);
+    const validPatientId = !isNaN(numId) ? numId : patientId;
     const raw = await apiClient<BackendMealCompletion>("/api/nutrition/meal-completion", {
       data: {
-        patient_id: Number(patientId),
+        patient_id: validPatientId,
         meal_id: completion.mealId,
         date: completion.date,
         status: completion.status,

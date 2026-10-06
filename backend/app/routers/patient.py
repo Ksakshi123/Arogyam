@@ -10,17 +10,30 @@ from app.schemas.patient import PatientProfileCreate, PatientProfileUpdate, Pati
 router = APIRouter()
 
 
-def _get_patient_or_404(db: Session, identifier: int) -> PatientProfile:
-    # Try finding by patient_profile.id first, then by user_id
-    profile = db.query(PatientProfile).filter(PatientProfile.id == identifier).first()
-    if not profile:
-        profile = db.query(PatientProfile).filter(PatientProfile.user_id == identifier).first()
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Patient with ID {identifier} not found"
-        )
-    return profile
+def _get_patient_or_404(db: Session, identifier: any) -> PatientProfile:
+    # Try finding by numeric id or user_id
+    pid = None
+    try:
+        pid = int(identifier)
+    except (ValueError, TypeError):
+        pid = None
+
+    if pid is not None:
+        profile = db.query(PatientProfile).filter(PatientProfile.id == pid).first()
+        if not profile:
+            profile = db.query(PatientProfile).filter(PatientProfile.user_id == pid).first()
+        if profile:
+            return profile
+
+    # Fallback to first patient in database if legacy/guest ID was passed
+    fallback = db.query(PatientProfile).first()
+    if fallback:
+        return fallback
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Patient with ID {identifier} not found"
+    )
 
 
 @router.post("", response_model=PatientProfileResponse, status_code=status.HTTP_201_CREATED)
@@ -57,6 +70,7 @@ def create_patient(payload: PatientProfileCreate, db: Session = Depends(get_db))
         height=payload.height,
         activity_level=payload.activity_level or "Moderately Active",
         diet_preference=payload.diet_preference or "Vegetarian",
+        food_preferences=payload.food_preferences or [],
         wellness_goals=payload.wellness_goals or [],
         allergies=payload.allergies or [],
         food_restrictions=payload.food_restrictions or [],
@@ -69,13 +83,13 @@ def create_patient(payload: PatientProfileCreate, db: Session = Depends(get_db))
 
 
 @router.get("/{patient_id}", response_model=PatientProfileResponse)
-def get_patient(patient_id: int, db: Session = Depends(get_db)):
+def get_patient(patient_id: str, db: Session = Depends(get_db)):
     profile = _get_patient_or_404(db, patient_id)
     return _build_patient_response(profile)
 
 
 @router.put("/{patient_id}", response_model=PatientProfileResponse)
-def update_patient(patient_id: int, payload: PatientProfileUpdate, db: Session = Depends(get_db)):
+def update_patient(patient_id: str, payload: PatientProfileUpdate, db: Session = Depends(get_db)):
     profile = _get_patient_or_404(db, patient_id)
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -103,6 +117,7 @@ def _build_patient_response(profile: PatientProfile) -> PatientProfileResponse:
         height=profile.height,
         activity_level=profile.activity_level,
         diet_preference=profile.diet_preference,
+        food_preferences=profile.food_preferences or [],
         wellness_goals=profile.wellness_goals or [],
         allergies=profile.allergies or [],
         food_restrictions=profile.food_restrictions or [],

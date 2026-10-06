@@ -1,10 +1,10 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 
 
 class MealCompletionCreate(BaseModel):
-    patient_id: int
+    patient_id: Optional[Union[int, str]] = None
     meal_id: str
     date: str                                            # YYYY-MM-DD
     status: str                                          # planned | completed | skipped | replaced

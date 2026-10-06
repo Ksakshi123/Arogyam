@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,35 +25,77 @@ import { Meal } from "../types/meal";
 
 const PatientDashboard = () => {
   const navigate = useNavigate();
-  const { profile, doshaResult, logout, userId } = usePatientStore();
+  const { profile, doshaResult, logout, userId, isLoading, loadFromDB } = usePatientStore();
   const { weeklyPlan, completions, markMealStatus, getStreak, loadWeeklyPlan } = useDietStore();
   const setIsChatOpen = useChatbotStore((state) => state.setIsOpen);
 
   const [greeting, setGreeting] = useState("Good Morning");
   const [recipeMeal, setRecipeMeal] = useState<Meal | null>(null);
+  const attemptedLoadRef = useRef(false);
+  const attemptedPlanRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!profile) {
-      navigate("/patient/login");
-      return;
-    }
-    if (!doshaResult) {
-      navigate("/patient/dosha-assessment");
+    // Keep user on their dashboard when pressing browser Back button
+    window.history.pushState(null, "", window.location.href);
+    const handlePopState = () => {
+      const activeUid = usePatientStore.getState().userId || dbGetSession();
+      if (activeUid) {
+        window.history.pushState(null, "", window.location.href);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const activeUid = userId || dbGetSession();
+    if (!activeUid) {
+      navigate("/patient/login", { replace: true });
       return;
     }
 
-    const currentUid = userId || dbGetSession();
-    if (currentUid) {
-      loadWeeklyPlan(currentUid);
+    if (!profile) {
+      if (!attemptedLoadRef.current && !isLoading) {
+        attemptedLoadRef.current = true;
+        loadFromDB(activeUid).then(() => {
+          const currentProfile = usePatientStore.getState().profile;
+          if (!currentProfile) {
+            navigate("/patient/onboarding");
+          }
+        });
+      }
+      return;
+    }
+
+    if (activeUid && attemptedPlanRef.current !== activeUid) {
+      attemptedPlanRef.current = activeUid;
+      loadWeeklyPlan(activeUid);
     }
 
     const hour = new Date().getHours();
     if (hour < 12) setGreeting("Good Morning");
     else if (hour < 18) setGreeting("Good Afternoon");
     else setGreeting("Good Evening");
-  }, [profile, doshaResult, userId, navigate, loadWeeklyPlan]);
+  }, [profile, userId, isLoading, navigate, loadWeeklyPlan, loadFromDB]);
 
-  if (!profile || !doshaResult) return null;
+  if (isLoading || !profile) {
+    return (
+      <div className="min-h-screen gradient-wellness flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground text-sm font-medium">Loading your wellness dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const effectiveDosha = doshaResult || {
+    vata: 33,
+    pitta: 34,
+    kapha: 33,
+    primaryDosha: "Tridoshic",
+    constitution: "Pending Quiz",
+  };
 
   const currentStreak = getStreak();
   const activeUserId = userId || dbGetSession() || "";
@@ -110,14 +152,14 @@ const PatientDashboard = () => {
     : [];
 
   const completedTodayCount = todaysMeals.filter((m) => m.status === "completed").length;
-  const proteinGoal = Math.round(profile.weight * 1.2);
+  const proteinGoal = Math.round((profile?.weight || 65) * 1.2);
   const consumedProteinToday = todaysMeals
     .filter((m) => m.status === "completed")
     .reduce((sum, m) => sum + m.protein, 0);
 
   const handleSignOut = () => {
     logout();
-    navigate("/patient/login");
+    navigate("/", { replace: true });
   };
 
   return (
@@ -139,7 +181,7 @@ const PatientDashboard = () => {
               )}
             </div>
             <h2 className="text-3xl font-bold tracking-tight text-foreground">
-              {greeting}, {profile.fullName.split(" ")[0]}
+              {greeting}, {profile.fullName ? profile.fullName.split(" ")[0] : "Seeker"}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               Here is your holistic health summary and nutrition guidance for today.
@@ -151,22 +193,48 @@ const PatientDashboard = () => {
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider block font-bold">
                 Constitution
               </span>
-              <span className="font-bold text-primary text-base">{doshaResult.constitution}</span>
+              <span className="font-bold text-primary text-base">{effectiveDosha.constitution}</span>
             </div>
             <div className="h-8 w-px bg-border"></div>
             <div className="flex gap-2 text-xs font-semibold">
               <span className="px-2 py-0.5 rounded bg-[hsl(var(--vata)/0.15)] text-[hsl(var(--vata))]">
-                V {doshaResult.vata ?? doshaResult.percentages?.vata ?? 0}%
+                V {effectiveDosha.vata ?? 0}%
               </span>
               <span className="px-2 py-0.5 rounded bg-[hsl(var(--pitta)/0.15)] text-[hsl(var(--pitta))]">
-                P {doshaResult.pitta ?? doshaResult.percentages?.pitta ?? 0}%
+                P {effectiveDosha.pitta ?? 0}%
               </span>
               <span className="px-2 py-0.5 rounded bg-[hsl(var(--kapha)/0.15)] text-[hsl(var(--kapha))]">
-                K {doshaResult.kapha ?? doshaResult.percentages?.kapha ?? 0}%
+                K {effectiveDosha.kapha ?? 0}%
               </span>
             </div>
           </div>
         </div>
+
+        {/* Action Banner if Dosha Assessment is Pending */}
+        {!doshaResult && (
+          <Card className="mb-8 border-amber-300/80 bg-amber-50/80 dark:bg-amber-950/20 shadow-sm overflow-hidden">
+            <CardContent className="p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 shrink-0 mt-0.5">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-foreground text-base">Complete Your Dosha Assessment</h4>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Take the 15-question Ayurvedic Prakriti assessment to discover your body constitution and unlock personalized weekly meal plans.
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => navigate("/patient/dosha-assessment")}
+                className="shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow"
+              >
+                Start Assessment
+                <ArrowRight className="w-4 h-4 ml-1.5" />
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* 4 Dynamic Stat Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -336,7 +404,7 @@ const PatientDashboard = () => {
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-                  Your primary constitution is <strong className="text-foreground">{doshaResult.constitution}</strong>. Re-assess periodically if seasons change or your energy fluctuates.
+                  Your primary constitution is <strong className="text-foreground">{effectiveDosha.constitution}</strong>. Re-assess periodically if seasons change or your energy fluctuates.
                 </p>
                 <Button
                   onClick={() => navigate("/patient/dosha-assessment")}
@@ -344,7 +412,7 @@ const PatientDashboard = () => {
                   size="sm"
                   className="w-full border-primary/30 text-primary hover:bg-primary/10 text-xs"
                 >
-                  Retake Dosha Quiz
+                  {doshaResult ? "Retake Dosha Quiz" : "Take Dosha Quiz"}
                 </Button>
               </CardContent>
             </Card>

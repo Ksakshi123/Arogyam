@@ -16,7 +16,16 @@ const DoshaResult = () => {
     }
   }, [doshaResult, navigate]);
 
-  if (!doshaResult) return null;
+  if (!doshaResult) {
+    return (
+      <div className="min-h-screen gradient-wellness flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground text-sm font-medium">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen gradient-wellness py-12 px-4 flex justify-center">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { usePatientStore } from "../store/patientStore";
 import { register } from "@/lib/auth";
+import { dbGetSession } from "@/lib/db";
 import { ActivityLevel, WellnessGoal, DietPreference, FoodPreference, PatientProfile } from "../types/patient";
 import logoImage from "@/assets/arogyam-logo.png";
 import { CheckCircle2, ArrowRight, ArrowLeft, ShieldCheck, Sparkles, AlertCircle } from "lucide-react";
@@ -16,7 +17,19 @@ import { CheckCircle2, ArrowRight, ArrowLeft, ShieldCheck, Sparkles, AlertCircle
 const PatientSignup = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { setProfile, setUserId } = usePatientStore();
+  const { setProfile, setUserId, userId } = usePatientStore();
+  const activeUser = userId || dbGetSession();
+
+  // If already logged in, keep user on dashboard
+  useEffect(() => {
+    if (activeUser) {
+      navigate("/patient/dashboard", { replace: true });
+    }
+  }, [activeUser, navigate]);
+
+  if (activeUser) {
+    return null;
+  }
 
   const [step, setStep] = useState(1);
   const totalSteps = 4;
@@ -108,7 +121,7 @@ const PatientSignup = () => {
         description: `Welcome to Arogyam, ${fullProfile.fullName}! Let's find your unique Dosha.`,
       });
 
-      navigate("/patient/dosha-assessment");
+      navigate("/patient/dosha-assessment", { replace: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "An unexpected error occurred during signup.";
       setErrorMsg(message);

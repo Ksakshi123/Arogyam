@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Union
 from datetime import datetime
 from app.schemas.meal import MealResponse
 
@@ -12,7 +12,7 @@ class PlanCompatibilityScore(BaseModel):
 
 
 class DietGenerateRequest(BaseModel):
-    patient_id: int
+    patient_id: Union[int, str]
     preferences_override: Optional[Dict[str, Any]] = None
 
 

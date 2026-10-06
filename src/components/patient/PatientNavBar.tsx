@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LogOut, LayoutDashboard, CalendarDays, BarChart3, UserCircle, Database } from "lucide-react";
+import { LogOut, LayoutDashboard, CalendarDays, BarChart3, UserCircle } from "lucide-react";
 import logoImage from "@/assets/arogyam-logo.png";
 import { usePatientStore } from "@/store/patientStore";
 
@@ -19,7 +19,7 @@ const PatientNavBar = () => {
 
   const handleSignOut = () => {
     logout();
-    navigate("/patient/login");
+    navigate("/", { replace: true });
   };
 
   return (
@@ -55,18 +55,6 @@ const PatientNavBar = () => {
               </Link>
             );
           })}
-
-          {/* Database link */}
-          <a
-            href="http://localhost:8080"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all"
-            title="SQLite Browser DB"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>Database</span>
-          </a>
 
           {/* Sign Out */}
           <Button

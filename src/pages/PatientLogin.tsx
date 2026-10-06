@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,19 +7,31 @@ import { Link, useNavigate } from "react-router-dom";
 import logoImage from "@/assets/arogyam-logo.png";
 import { usePatientStore } from "../store/patientStore";
 import { login, register } from "@/lib/auth";
-import { dbSaveDoshaAssessment, dbGetLatestDoshaAssessment } from "@/lib/db";
+import { dbSaveDoshaAssessment, dbGetLatestDoshaAssessment, dbGetSession } from "@/lib/db";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, ArrowRight, Sparkles, Lock, Mail } from "lucide-react";
 
 const PatientLogin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { setUserId, loadFromDB } = usePatientStore();
+  const { setUserId, loadFromDB, userId } = usePatientStore();
+  const activeUser = userId || dbGetSession();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  // If user is already logged in, keep them on their dashboard
+  useEffect(() => {
+    if (activeUser) {
+      navigate("/patient/dashboard", { replace: true });
+    }
+  }, [activeUser, navigate]);
+
+  if (activeUser) {
+    return null;
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,14 +48,19 @@ const PatientLogin = () => {
       }
 
       setUserId(result.user.id);
-      loadFromDB(result.user.id);
+      await loadFromDB(result.user.id);
 
       toast({
         title: "Welcome Back!",
         description: `Signed in successfully as ${result.user.email}`,
       });
 
-      navigate("/patient/dashboard");
+      const currentProfile = usePatientStore.getState().profile;
+      if (currentProfile) {
+        navigate("/patient/dashboard", { replace: true });
+      } else {
+        navigate("/patient/onboarding", { replace: true });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "An error occurred while signing in.";
       setErrorMsg(message);
@@ -94,12 +111,12 @@ const PatientLogin = () => {
         });
       }
       setUserId(res.user.id);
-      loadFromDB(res.user.id);
+      await loadFromDB(res.user.id);
       toast({
         title: "Demo Mode Active 🌿",
         description: "Logged in as Aarav Sharma with sample wellness data.",
       });
-      navigate("/patient/dashboard");
+      navigate("/patient/dashboard", { replace: true });
     } else {
       setErrorMsg("Could not initialize demo profile.");
     }

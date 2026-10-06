@@ -3,8 +3,13 @@ import { Link } from "react-router-dom";
 import heroImage from "@/assets/hero-ayurveda.jpg";
 import logoImage from "@/assets/arogyam-logo.png";
 import { Sparkles, ArrowRight, CheckCircle2, Flame } from "lucide-react";
+import { usePatientStore } from "@/store/patientStore";
+import { dbGetSession } from "@/lib/db";
 
 export const Hero = () => {
+  const userId = usePatientStore((s) => s.userId);
+  const isAuthenticated = !!userId || !!dbGetSession();
+
   return (
     <section className="relative min-h-[92vh] flex flex-col justify-between overflow-hidden">
       {/* Background Image with Ambient Gradient Overlay */}
@@ -41,15 +46,25 @@ export const Hero = () => {
         </nav>
 
         <div className="flex items-center gap-3">
-          <Link
-            to="/patient/login"
-            className="text-sm font-medium text-white/90 hover:text-white px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
-          >
-            Sign In
-          </Link>
-          <Button asChild size="sm" className="btn-wellness text-xs font-semibold shadow-lg">
-            <Link to="/patient/signup">Get Started</Link>
-          </Button>
+          {isAuthenticated ? (
+            <Button asChild size="sm" className="btn-wellness text-xs font-semibold shadow-lg">
+              <Link to="/patient/dashboard">
+                Dashboard <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Link
+                to="/patient/login"
+                className="text-sm font-medium text-white/90 hover:text-white px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                Sign In
+              </Link>
+              <Button asChild size="sm" className="btn-wellness text-xs font-semibold shadow-lg">
+                <Link to="/patient/signup">Get Started</Link>
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
@@ -81,8 +96,8 @@ export const Hero = () => {
           size="lg"
           className="btn-wellness text-base px-8 py-6 w-full sm:w-auto shadow-2xl flex items-center justify-center gap-2"
         >
-          <Link to="/patient/login">
-            Start Your Wellness Journey <ArrowRight className="w-4 h-4" />
+          <Link to={isAuthenticated ? "/patient/dashboard" : "/patient/login"}>
+            {isAuthenticated ? "Go to Your Dashboard" : "Start Your Wellness Journey"} <ArrowRight className="w-4 h-4" />
           </Link>
         </Button>
       </div>

@@ -1,13 +1,18 @@
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import PatientNavBar from "../components/patient/PatientNavBar";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Search, Star, Heart, Leaf, Baby } from "lucide-react";
+import { MessageCircle, Search, Star, Heart, Leaf, Baby, ChefHat } from "lucide-react";
 import { Link } from "react-router-dom";
 import logoImage from "@/assets/arogyam-logo.png";
+import RecipeDialog from "../components/patient/RecipeDialog";
+import { Meal } from "../types/meal";
+import { getMealRecipe } from "../data/mealRecipes";
 
 const FindDiet = () => {
+  const [selectedRecipeMeal, setSelectedRecipeMeal] = useState<Meal | null>(null);
   const dietRecommendations = [
     {
       title: "Anti-Inflammatory Turmeric Latte",
@@ -146,8 +151,35 @@ const FindDiet = () => {
                       <Button size="sm" className="btn-wellness">
                         Add to Plan
                       </Button>
-                      <Button size="sm" variant="outline">
-                        View Recipe
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          const ingredients = diet.title.includes("Turmeric")
+                            ? ["Turmeric Root", "Almond Milk", "Ginger", "Black Pepper", "Raw Honey", "Cinnamon"]
+                            : diet.title.includes("Pregnancy")
+                            ? ["Spinach", "Quinoa", "Lentils", "Avocado", "Pomegranate Seeds", "Sesame Oil"]
+                            : ["Quinoa", "Cucumber", "Parsley", "Lemon Juice", "Olive Oil", "Pumpkin Seeds"];
+
+                          setSelectedRecipeMeal({
+                            id: `diet-${index}`,
+                            name: diet.title,
+                            type: "lunch",
+                            description: diet.description,
+                            ingredients,
+                            calories: 220,
+                            protein: 10,
+                            carbohydrates: 28,
+                            fats: 8,
+                            preparationTime: 15,
+                            tags: [diet.category],
+                            suitableDoshas: ["Tridoshic"],
+                            explanation: diet.description,
+                            recipe: getMealRecipe(`diet-${index}`, diet.title, ingredients, ["Vata", "Pitta", "Kapha"]),
+                          });
+                        }}
+                      >
+                        <ChefHat className="w-3.5 h-3.5 mr-1" /> View Recipe
                       </Button>
                       <Button size="sm" variant="outline">
                         Rate Diet
@@ -168,6 +200,13 @@ const FindDiet = () => {
       >
         <MessageCircle className="w-6 h-6" />
       </Button>
+
+      {/* Recipe Dialog */}
+      <RecipeDialog
+        meal={selectedRecipeMeal}
+        isOpen={!!selectedRecipeMeal}
+        onClose={() => setSelectedRecipeMeal(null)}
+      />
     </div>
   );
 };

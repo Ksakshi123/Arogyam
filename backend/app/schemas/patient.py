@@ -9,6 +9,7 @@ class PatientProfileBase(BaseModel):
     height: Optional[float] = None
     activity_level: Optional[str] = "Moderately Active"
     diet_preference: Optional[str] = "Vegetarian"
+    food_preferences: Optional[List[str]] = []
     wellness_goals: Optional[List[str]] = []
     allergies: Optional[List[str]] = []
     food_restrictions: Optional[List[str]] = []
@@ -27,6 +28,7 @@ class PatientProfileUpdate(BaseModel):
     height: Optional[float] = None
     activity_level: Optional[str] = None
     diet_preference: Optional[str] = None
+    food_preferences: Optional[List[str]] = None
     wellness_goals: Optional[List[str]] = None
     allergies: Optional[List[str]] = None
     food_restrictions: Optional[List[str]] = None
