@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🌿 Arogyam – Personalized Ayurvedic Wellness Platform
 
 Arogyam is a full-stack, AI-powered wellness platform inspired by Ayurvedic principles. The platform provides personalized wellness guidance through **Dosha assessment, nutrition recommendations, meal planning, wellness tracking, and an AI-powered assistant**.
@@ -482,3 +483,7 @@ Users should consult qualified healthcare professionals for medical conditions, 
 ## 🌿 Arogyam
 
 **Personalizing wellness through technology and Ayurvedic principles.**
+=======
+# Arogyam
+ML-Based Diet Recommendation System 
+>>>>>>> 7ded3cbcb2ae5381ec4bfa877a3ba9f0052550f4
