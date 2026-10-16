@@ -8,13 +8,21 @@ from app.models.patient import PatientProfile
 from app.models.dosha import DoshaResult
 from app.models.diet import WeeklyDietPlan
 from app.models.meal import Meal
+from app.models.user import User
 from app.schemas.diet import DietGenerateRequest, WeeklyDietPlanResponse, PlanCompatibilityScore, DailyDietPlanResponse
 from app.schemas.meal import MealResponse, MealUpdate
 from app.services.diet_service import DietService
 from app.services.groq_diet_service import GroqDietService
 from app.routers.patient import _get_patient_or_404
+from app.dependencies import get_current_user
 
 router = APIRouter()
+
+
+def _assert_patient_access(patient: PatientProfile, current_user: User):
+    """Raise 403 if the authenticated user does not own this patient record (unless doctor)."""
+    if patient.user_id != current_user.id and current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
 
 
 def _format_weekly_plan(plan: WeeklyDietPlan, db: Session) -> WeeklyDietPlanResponse:
@@ -55,8 +63,13 @@ def _format_weekly_plan(plan: WeeklyDietPlan, db: Session) -> WeeklyDietPlanResp
 
 
 @router.post("/generate", response_model=WeeklyDietPlanResponse)
-def generate_weekly_plan(payload: DietGenerateRequest, db: Session = Depends(get_db)):
+def generate_weekly_plan(
+    payload: DietGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, payload.patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
 
     # Fetch latest dosha result
     dosha = (
@@ -187,8 +200,13 @@ def generate_weekly_plan(payload: DietGenerateRequest, db: Session = Depends(get
 
 
 @router.get("/current/{patient_id}", response_model=WeeklyDietPlanResponse)
-def get_current_plan(patient_id: str, db: Session = Depends(get_db)):
+def get_current_plan(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
 
     active_plan = (
         db.query(WeeklyDietPlan)
@@ -205,13 +223,24 @@ def get_current_plan(patient_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/meal/{meal_id}", response_model=MealResponse)
-def update_meal(meal_id: str, payload: MealUpdate, db: Session = Depends(get_db)):
+def update_meal(
+    meal_id: str,
+    payload: MealUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     meal = db.query(Meal).filter(Meal.id == meal_id).first()
     if not meal:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Meal with ID '{meal_id}' not found"
+            detail="Meal not found"  # Generic — don't expose internal IDs
         )
+    # SECURITY FIX: Verify the meal belongs to the requesting user's plan
+    plan = db.query(WeeklyDietPlan).filter(WeeklyDietPlan.id == meal.diet_plan_id).first()
+    if plan:
+        patient = db.query(PatientProfile).filter(PatientProfile.id == plan.patient_id).first()
+        if patient:
+            _assert_patient_access(patient, current_user)
 
     update_data = payload.model_dump(exclude_unset=True)
     for key, val in update_data.items():
@@ -225,5 +254,9 @@ def update_meal(meal_id: str, payload: MealUpdate, db: Session = Depends(get_db)
 
 
 @router.post("/regenerate", response_model=WeeklyDietPlanResponse)
-def regenerate_plan(payload: DietGenerateRequest, db: Session = Depends(get_db)):
+def regenerate_plan(
+    payload: DietGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     return generate_weekly_plan(payload, db)

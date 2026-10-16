@@ -6,15 +6,27 @@ from datetime import datetime
 from app.database import get_db
 from app.models.patient import PatientProfile
 from app.models.dosha import DoshaAssessment, DoshaResult
+from app.models.user import User
 from app.schemas.dosha import DoshaAssessmentCreate, DoshaResultResponse, DoshaHistoryItem
 from app.services.dosha_service import DoshaService
 from app.routers.patient import _get_patient_or_404
+from app.dependencies import get_current_user
 
 router = APIRouter()
 
 
+def _assert_patient_access(patient: PatientProfile, current_user: User):
+    """Raise 403 if the authenticated user does not own this patient record (unless doctor)."""
+    if patient.user_id != current_user.id and current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
+
+
 @router.post("/assessment", response_model=DoshaResultResponse)
-def submit_dosha_assessment(payload: DoshaAssessmentCreate, db: Session = Depends(get_db)):
+def submit_dosha_assessment(
+    payload: DoshaAssessmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     if not payload.answers:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -25,16 +37,19 @@ def submit_dosha_assessment(payload: DoshaAssessmentCreate, db: Session = Depend
     patient_id = payload.patient_id
     if patient_id:
         patient = _get_patient_or_404(db, patient_id)
+        _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
         pid = patient.id
     else:
-        # Fallback to first patient or create a guest profile
-        first_patient = db.query(PatientProfile).first()
-        if not first_patient:
+        # Use the authenticated user's own profile
+        own_patient = db.query(PatientProfile).filter(
+            PatientProfile.user_id == current_user.id
+        ).first()
+        if not own_patient:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="A valid patient profile must be created before taking the Dosha Assessment"
             )
-        pid = first_patient.id
+        pid = own_patient.id
 
     # 1. Calculate deterministic scores
     result_data = DoshaService.calculate_dosha(payload.answers)
@@ -80,8 +95,13 @@ def submit_dosha_assessment(payload: DoshaAssessmentCreate, db: Session = Depend
 
 
 @router.get("/result/{patient_id}", response_model=Optional[DoshaResultResponse])
-def get_latest_result(patient_id: str, db: Session = Depends(get_db)):
+def get_latest_result(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
     latest_result = (
         db.query(DoshaResult)
         .filter(DoshaResult.patient_id == patient.id)
@@ -107,8 +127,13 @@ def get_latest_result(patient_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/history/{patient_id}", response_model=List[DoshaHistoryItem])
-def get_dosha_history(patient_id: str, db: Session = Depends(get_db)):
+def get_dosha_history(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
     history = (
         db.query(DoshaResult)
         .filter(DoshaResult.patient_id == patient.id)

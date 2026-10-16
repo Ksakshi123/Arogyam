@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { usePatientStore } from "../store/patientStore";
@@ -32,7 +32,7 @@ const WeeklyMealPlan = () => {
   const [swapOptions, setSwapOptions] = useState<Meal[]>([]);
   const [isGroceryModalOpen, setIsGroceryModalOpen] = useState(false);
 
-  const effectiveDosha: DoshaResult = doshaResult || {
+  const effectiveDosha: DoshaResult = useMemo(() => doshaResult || {
     vata: 33,
     pitta: 34,
     kapha: 33,
@@ -40,7 +40,7 @@ const WeeklyMealPlan = () => {
     secondaryDosha: "Pitta" as DoshaType,
     constitution: "Tridoshic (Balanced)",
     assessmentDate: new Date().toISOString(),
-  };
+  }, [doshaResult]);
 
   const generateNewPlan = useCallback(async () => {
     if (!profile) return;

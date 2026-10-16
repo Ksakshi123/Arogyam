@@ -20,17 +20,6 @@ const PatientSignup = () => {
   const { setProfile, setUserId, userId } = usePatientStore();
   const activeUser = userId || dbGetSession();
 
-  // If already logged in, keep user on dashboard
-  useEffect(() => {
-    if (activeUser) {
-      navigate("/patient/dashboard", { replace: true });
-    }
-  }, [activeUser, navigate]);
-
-  if (activeUser) {
-    return null;
-  }
-
   const [step, setStep] = useState(1);
   const totalSteps = 4;
   const [loading, setLoading] = useState(false);
@@ -56,6 +45,17 @@ const PatientSignup = () => {
     foodRestrictions: [],
     dislikedFoods: [],
   });
+
+  // If already logged in, keep user on dashboard
+  useEffect(() => {
+    if (activeUser) {
+      navigate("/patient/dashboard", { replace: true });
+    }
+  }, [activeUser, navigate]);
+
+  if (activeUser) {
+    return null;
+  }
 
   const nextStep = () => {
     setErrorMsg("");

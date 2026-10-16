@@ -5,9 +5,11 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models.nutrition import MealCompletion, DailyNutrition
+from app.models.user import User
 from app.schemas.nutrition import MealCompletionCreate, MealCompletionResponse, NutritionAnalyticsResponse, NutritionDaySummary
 from app.services.nutrition_service import NutritionService
 from app.routers.patient import _get_patient_or_404
+from app.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -15,9 +17,20 @@ router = APIRouter()
 from app.models.meal import Meal
 
 
+def _assert_patient_access(patient, current_user: User):
+    """Raise 403 if the authenticated user does not own this patient record (unless doctor)."""
+    if patient.user_id != current_user.id and current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
+
+
 @router.post("/meal-completion", response_model=MealCompletionResponse)
-def log_meal_completion(payload: MealCompletionCreate, db: Session = Depends(get_db)):
+def log_meal_completion(
+    payload: MealCompletionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, payload.patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
 
     # Check if meal exists in meals table to avoid foreign key violation
     safe_meal_id = None
@@ -65,8 +78,13 @@ def log_meal_completion(payload: MealCompletionCreate, db: Session = Depends(get
 
 
 @router.get("/{patient_id}", response_model=NutritionAnalyticsResponse)
-def get_nutrition_analytics(patient_id: str, db: Session = Depends(get_db)):
+def get_nutrition_analytics(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     patient = _get_patient_or_404(db, patient_id)
+    _assert_patient_access(patient, current_user)  # SECURITY FIX: ownership check
 
     streak = NutritionService.calculate_streak(db, patient.id)
     adherence = NutritionService.calculate_adherence(db, patient.id)

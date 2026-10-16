@@ -6,12 +6,14 @@ from app.database import get_db
 from app.models.patient import PatientProfile
 from app.models.user import User
 from app.schemas.patient import PatientProfileCreate, PatientProfileUpdate, PatientProfileResponse
+from app.dependencies import get_current_user
 
 router = APIRouter()
 
 
 def _get_patient_or_404(db: Session, identifier: any) -> PatientProfile:
-    # Try finding by numeric id or user_id
+    """Looks up a PatientProfile by its id or user_id. Raises 404 generically on miss
+    to avoid revealing which IDs exist (prevents enumeration attacks)."""
     pid = None
     try:
         pid = int(identifier)
@@ -25,37 +27,29 @@ def _get_patient_or_404(db: Session, identifier: any) -> PatientProfile:
         if profile:
             return profile
 
-    # Fallback to first patient in database if legacy/guest ID was passed
-    fallback = db.query(PatientProfile).first()
-    if fallback:
-        return fallback
-
+    # SECURITY FIX: Never fall back to the first patient in the DB.
+    # That would silently return another user's data for any unknown ID.
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Patient with ID {identifier} not found"
+        detail="Patient not found"  # Generic message — don't reveal ID existence
     )
 
 
 @router.post("", response_model=PatientProfileResponse, status_code=status.HTTP_201_CREATED)
-def create_patient(payload: PatientProfileCreate, db: Session = Depends(get_db)):
-    # Check if user exists or if user_id is provided
-    user_id = payload.user_id
-    if not user_id:
-        # Create a user record if none provided
-        user = User(
-            name=payload.full_name or "Arogyam Patient",
-            email=f"patient_{payload.age or 30}_{int(payload.weight or 65)}@arogyam.local",
-            password_hash="placeholder_hash",
-            role="patient"
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        user_id = user.id
+def create_patient(
+    payload: PatientProfileCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
+    """Create or update the authenticated user's patient profile.
+    user_id is always taken from the JWT token — never from the request body.
+    """
+    # SECURITY FIX: Always use the authenticated user's ID — ignore any user_id in payload
+    user_id = current_user.id
 
     existing = db.query(PatientProfile).filter(PatientProfile.user_id == user_id).first()
     if existing:
-        # Update existing
+        # Update existing profile — only allow safe fields
         for field, value in payload.model_dump(exclude_unset=True).items():
             if field != "user_id" and hasattr(existing, field):
                 setattr(existing, field, value)
@@ -83,14 +77,33 @@ def create_patient(payload: PatientProfileCreate, db: Session = Depends(get_db))
 
 
 @router.get("/{patient_id}", response_model=PatientProfileResponse)
-def get_patient(patient_id: str, db: Session = Depends(get_db)):
+def get_patient(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     profile = _get_patient_or_404(db, patient_id)
+
+    # SECURITY FIX: Ownership check — patients can only read their own profile.
+    # Doctors can read any patient's profile.
+    if profile.user_id != current_user.id and current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
+
     return _build_patient_response(profile)
 
 
 @router.put("/{patient_id}", response_model=PatientProfileResponse)
-def update_patient(patient_id: str, payload: PatientProfileUpdate, db: Session = Depends(get_db)):
+def update_patient(
+    patient_id: str,
+    payload: PatientProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # SECURITY FIX: require JWT
+):
     profile = _get_patient_or_404(db, patient_id)
+
+    # SECURITY FIX: Ownership check — patients can only update their own profile.
+    if profile.user_id != current_user.id and current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden")
 
     update_data = payload.model_dump(exclude_unset=True)
     if "full_name" in update_data and profile.user:

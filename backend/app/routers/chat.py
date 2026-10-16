@@ -27,21 +27,28 @@ def _resolve_patient(
     explicit_patient_id: Optional[int] = None,
     header_patient_id: Optional[str] = None
 ) -> PatientProfile:
-    # 1. From authenticated JWT user
+    # SECURITY FIX: When a JWT is present, always resolve patient from the
+    # authenticated user's own record. Never trust X-Patient-Id or payload
+    # patient_id from an authenticated non-doctor — those could be spoofed
+    # to access another patient's data.
     if current_user:
-        profile = db.query(PatientProfile).filter(PatientProfile.user_id == current_user.id).first()
-        if profile:
-            return profile
-
-    # 2. From explicit patient_id parameter
-    if explicit_patient_id:
+        if current_user.role == "doctor":
+            # Doctors may query any patient via explicit_patient_id
+            if explicit_patient_id:
+                profile = db.query(PatientProfile).filter(
+                    (PatientProfile.id == explicit_patient_id) |
+                    (PatientProfile.user_id == explicit_patient_id)
+                ).first()
+                if profile:
+                    return profile
+        # For patients (or doctors without an explicit ID), use their own profile
         profile = db.query(PatientProfile).filter(
-            (PatientProfile.id == explicit_patient_id) | (PatientProfile.user_id == explicit_patient_id)
+            PatientProfile.user_id == current_user.id
         ).first()
         if profile:
             return profile
 
-    # 3. From X-Patient-Id header
+    # Guest / unauthenticated path — only use header as last resort
     if header_patient_id and header_patient_id.isdigit():
         pid = int(header_patient_id)
         profile = db.query(PatientProfile).filter(
@@ -49,11 +56,6 @@ def _resolve_patient(
         ).first()
         if profile:
             return profile
-
-    # 4. Fallback to first patient in database or create default
-    fallback = db.query(PatientProfile).first()
-    if fallback:
-        return fallback
 
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,

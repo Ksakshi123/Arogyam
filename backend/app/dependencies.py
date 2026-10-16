@@ -10,7 +10,13 @@ from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
-SECRET_KEY = os.getenv("SECRET_KEY", "arogyam_super_secret_jwt_key_replace_in_production_2024")
+# SECURITY FIX: No hardcoded default — fail fast at startup if SECRET_KEY is missing.
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "[SECURITY] SECRET_KEY environment variable is not set! "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
 
