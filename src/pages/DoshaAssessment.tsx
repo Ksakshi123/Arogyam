@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { usePatientStore } from "../store/patientStore";
 import { doshaQuestions } from "../data/doshaQuestions";
 import { RuleBasedDoshaPredictionService } from "../services/doshaService";
+import { doshaApi } from "../services/doshaApi";
 import { motion, AnimatePresence } from "framer-motion";
 
 const DoshaAssessment = () => {
@@ -34,16 +35,35 @@ const DoshaAssessment = () => {
     }, 400);
   };
 
-  const handleComplete = (finalAnswers?: Record<string, string>) => {
+  const handleComplete = async (finalAnswers?: Record<string, string>) => {
     setIsCalculating(true);
     // Use provided finalAnswers (avoids async state issue on last question)
     const answersToUse = finalAnswers ?? answers;
-    const result = RuleBasedDoshaPredictionService.calculateDosha(answersToUse);
-    setDoshaResult(result);
-    // Small timeout just for the animation to show briefly
-    setTimeout(() => {
-      navigate("/patient/dosha-result");
-    }, 600);
+
+    try {
+      // Save to backend Neon PostgreSQL
+      const backendResult = await doshaApi.submitAssessment(
+        usePatientStore.getState().userId,
+        answersToUse
+      );
+
+      // Use backend result, but keep frontend calculation as fallback
+      const result = backendResult || RuleBasedDoshaPredictionService.calculateDosha(answersToUse);
+      setDoshaResult(result);
+
+      // Small timeout just for the animation to show briefly
+      setTimeout(() => {
+        navigate("/patient/dosha-result");
+      }, 600);
+    } catch (error) {
+      console.error("Failed to save dosha assessment to backend:", error);
+      // Fallback to local calculation if backend fails
+      const result = RuleBasedDoshaPredictionService.calculateDosha(answersToUse);
+      setDoshaResult(result);
+      setTimeout(() => {
+        navigate("/patient/dosha-result");
+      }, 600);
+    }
   };
 
   if (isCalculating) {

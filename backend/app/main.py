@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import traceback
 
 from app.database import engine, Base
-import app.models  # Ensures all models are registered with Base metadata
+from app.models import User, PatientProfile, DoshaAssessment, DoshaResult, WeeklyDietPlan, Meal, MealCompletion, DailyNutrition, ChatMessage
 from app.routers import health, database, auth, patient, dosha, diet, nutrition, chat
 
 logging.basicConfig(level=logging.INFO)
@@ -79,6 +80,15 @@ app = FastAPI(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Global Exception Handler ──────────────────────────────────────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": type(exc).__name__}
+    )
 
 # ── CORS Middleware ──────────────────────────────────────────────────────────
 # SECURITY FIX: Use an explicit whitelist instead of allow_origin_regex=r"^https?://.*"

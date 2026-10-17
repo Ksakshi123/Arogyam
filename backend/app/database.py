@@ -6,10 +6,13 @@ from dotenv import load_dotenv
 # Ensure .env changes are always loaded fresh
 load_dotenv(override=True)
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/arogyam_db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL environment variable is not set! "
+        "Please set it in your .env file with your Neon PostgreSQL connection string."
+    )
 
 
 def get_normalized_db_url(url: str) -> str:
@@ -52,17 +55,18 @@ def check_db_connection():
     Actively tests the connection to the database and prints status.
     """
     safe_url = engine.url.render_as_string(hide_password=True)
+    db_type = "PostgreSQL"
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         print("\n" + "=" * 60)
-        print("  [DATABASE] Connected successfully to PostgreSQL!")
+        print(f"  [DATABASE] Connected successfully to {db_type}!")
         print(f"  Target: {safe_url}")
         print("=" * 60 + "\n", flush=True)
         return True
     except Exception as exc:
         print("\n" + "=" * 60)
-        print("  [DATABASE] WARNING: Could not connect to PostgreSQL!")
+        print(f"  [DATABASE] WARNING: Could not connect to {db_type}!")
         print(f"  Target: {safe_url}")
         print(f"  Details: {exc}")
         print("=" * 60 + "\n", flush=True)

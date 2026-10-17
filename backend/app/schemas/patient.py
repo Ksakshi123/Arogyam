@@ -5,6 +5,7 @@ from datetime import datetime
 
 class PatientProfileBase(BaseModel):
     age: Optional[int] = None
+    gender: Optional[str] = None
     weight: Optional[float] = None
     height: Optional[float] = None
     activity_level: Optional[str] = "Moderately Active"
@@ -24,6 +25,7 @@ class PatientProfileCreate(PatientProfileBase):
 class PatientProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     age: Optional[int] = None
+    gender: Optional[str] = None
     weight: Optional[float] = None
     height: Optional[float] = None
     activity_level: Optional[str] = None

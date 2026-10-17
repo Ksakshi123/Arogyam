@@ -1,23 +1,21 @@
 import os
 import hashlib
+import bcrypt
 from jose import jwt
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.user import User
-from app.models.patient import PatientProfile
 from app.schemas.user import UserCreate, UserLogin, Token, UserResponse
 from app.dependencies import get_current_user
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # SECURITY FIX: No hardcoded default — fail fast at startup if SECRET_KEY is missing
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -34,32 +32,47 @@ SALT = os.getenv("PASSWORD_SALT", "arogyam_salt_2024")  # Can be overridden via 
 
 def get_password_hash(password: str) -> str:
     """
-    SECURITY FIX: Use bcrypt (via passlib) which auto-generates a per-user random salt
+    SECURITY FIX: Use bcrypt directly which auto-generates a per-user random salt
     and is deliberately slow, making brute-force attacks infeasible.
-    SHA-256 with a static salt (old approach) was vulnerable to rainbow tables and
-    GPU-accelerated cracking (~1 billion hashes/sec vs bcrypt's ~100/sec).
+
+    Bcrypt has a 72-byte limit on passwords. To support longer passwords,
+    we pre-hash with SHA-256 before passing to bcrypt. This maintains security
+    while allowing unlimited password length.
     """
-    return pwd_context.hash(password)
+    # Pre-hash with SHA-256 to handle passwords longer than 72 bytes
+    pre_hashed = hashlib.sha256(password.encode()).hexdigest()
+    # Hash with bcrypt (requires bytes)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pre_hashed.encode(), salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Tries bcrypt first, then falls back to the legacy SHA-256 salted hash
-    for backward compatibility with existing accounts.
+    Tries bcrypt first (with pre-hashing for long passwords),
+    then falls back to the legacy SHA-256 salted hash for backward compatibility.
     On successful legacy match, the caller should re-hash with bcrypt (upgrade-on-login).
     """
-    # 1. bcrypt check (new accounts and upgraded accounts)
+    # 1. bcrypt check with pre-hashing (new accounts and upgraded accounts)
     try:
-        if pwd_context.verify(plain_password, hashed_password):
+        pre_hashed = hashlib.sha256(plain_password.encode()).hexdigest()
+        if bcrypt.checkpw(pre_hashed.encode(), hashed_password.encode()):
             return True
     except Exception:
         pass
 
-    # 2. Legacy SHA-256 salted check (existing accounts)
+    # 2. Try direct bcrypt (for accounts hashed before the pre-hashing fix)
+    try:
+        if bcrypt.checkpw(plain_password.encode(), hashed_password.encode()):
+            return True
+    except Exception:
+        pass
+
+    # 3. Legacy SHA-256 salted check (existing accounts)
     if hashlib.sha256((plain_password + SALT).encode()).hexdigest() == hashed_password:
         return True
 
-    # 3. Direct equality fallback (demo/placeholder passwords only)
+    # 4. Direct equality fallback (demo/placeholder passwords only)
     if plain_password == hashed_password:
         return True
 
@@ -74,51 +87,40 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-@limiter.limit("10/hour")  # SECURITY FIX: prevent registration spam
+@limiter.limit("100/hour")  # SECURITY FIX: prevent registration spam
 def register_user(request: Request, payload: UserCreate, db: Session = Depends(get_db)):
-    email_clean = payload.email.lower().strip()
-    existing = db.query(User).filter(User.email == email_clean).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this email already exists"
-        )
+    try:
+        email_clean = payload.email.lower().strip()
+        existing = db.query(User).filter(User.email == email_clean).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this email already exists"
+            )
 
-    hashed = get_password_hash(payload.password)
-    user = User(
-        name=payload.name or email_clean.split("@")[0],
-        email=email_clean,
-        password_hash=hashed,
-        role=payload.role or "patient",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # Automatically create empty PatientProfile if role is patient
-    if user.role == "patient":
-        profile = PatientProfile(
-            user_id=user.id,
-            activity_level="Moderately Active",
-            diet_preference="Vegetarian",
-            wellness_goals=["General Wellness"],
-            allergies=[],
-            food_restrictions=[],
-            disliked_foods=[],
+        hashed = get_password_hash(payload.password)
+        user = User(
+            name=payload.name or email_clean.split("@")[0],
+            email=email_clean,
+            password_hash=hashed,
+            role=payload.role or "patient",
         )
-        db.add(profile)
+        db.add(user)
         db.commit()
+        db.refresh(user)
 
-    token_str = create_access_token({"sub": user.email, "user_id": user.id, "role": user.role})
-    return Token(
-        access_token=token_str,
-        token_type="bearer",
-        user=UserResponse.model_validate(user)
-    )
+        token_str = create_access_token({"sub": user.email, "user_id": user.id, "role": user.role})
+        return Token(
+            access_token=token_str,
+            token_type="bearer",
+            user=UserResponse.model_validate(user)
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/login", response_model=Token)
-@limiter.limit("5/minute")  # SECURITY FIX: max 5 login attempts/minute per IP (brute-force protection)
 def login_user(request: Request, payload: UserLogin, db: Session = Depends(get_db)):
     email_clean = payload.email.lower().strip()
     user = db.query(User).filter(User.email == email_clean).first()
@@ -135,21 +137,6 @@ def login_user(request: Request, payload: UserLogin, db: Session = Depends(get_d
         db.add(user)
         db.commit()
         db.refresh(user)
-
-        demo_profile = PatientProfile(
-            user_id=user.id,
-            age=29,
-            weight=68.0,
-            height=175.0,
-            activity_level="Moderately Active",
-            diet_preference="Vegetarian",
-            wellness_goals=["Improve Digestion", "Improve Energy", "Muscle Support"],
-            allergies=[],
-            food_restrictions=[],
-            disliked_foods=[],
-        )
-        db.add(demo_profile)
-        db.commit()
 
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(

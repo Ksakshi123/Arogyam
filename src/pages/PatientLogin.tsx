@@ -118,7 +118,7 @@ const PatientLogin = () => {
       });
       navigate("/patient/dashboard", { replace: true });
     } else {
-      setErrorMsg("Could not initialize demo profile.");
+      setErrorMsg("Could not initialize demo profile. Please try again.");
     }
     setIsLoading(false);
   };

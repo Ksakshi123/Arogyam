@@ -109,22 +109,8 @@ export const usePatientStore = create<PatientState>()(
 
       setDoshaResult: (doshaResult) => {
         set({ doshaResult });
-        if (doshaResult) {
-          const uid = get().userId || dbGetSession();
-          if (uid) {
-            // Mirror to SQLite fallback
-            dbSaveDoshaAssessment({
-              userId: uid,
-              vata: doshaResult.vata,
-              pitta: doshaResult.pitta,
-              kapha: doshaResult.kapha,
-              primaryDosha: doshaResult.primaryDosha,
-              secondaryDosha: doshaResult.secondaryDosha,
-              constitution: doshaResult.constitution,
-              assessedAt: new Date().toISOString(),
-            });
-          }
-        }
+        // Note: Dosha assessment is saved to backend via doshaApi.submitAssessment
+        // This setter just updates the local state
       },
 
       submitDoshaAssessment: async (answers: Record<string, string>) => {

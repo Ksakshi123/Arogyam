@@ -36,7 +36,7 @@ backend/
 
 ### Prerequisites
 - Python 3.10+ installed
-- PostgreSQL installed & running (or SQLite for quick local development)
+- Neon PostgreSQL database (connection string configured in .env)
 
 ### Step 1: Navigate to the backend directory
 ```bash
@@ -66,7 +66,7 @@ Copy the `.env.example` file:
 ```bash
 cp .env.example .env
 ```
-*(Optionally update `DATABASE_URL` if using PostgreSQL. For quick testing without Postgres, you can change `DATABASE_URL` in `.env` to `sqlite:///./arogyam.db`)*
+Update `DATABASE_URL` in `.env` with your Neon PostgreSQL connection string.
 
 ### Step 5: Start the development server
 ```bash

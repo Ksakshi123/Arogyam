@@ -1,9 +1,10 @@
 """
 Authentication utilities – password hashing and JWT token creation.
 """
+import hashlib
+import bcrypt
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -11,16 +12,40 @@ from app.config import settings
 from app.database import get_db
 from app import models
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """
+    Hash password using bcrypt with pre-hashing to support unlimited password length.
+    Bcrypt has a 72-byte limit, so we pre-hash with SHA-256 first.
+    """
+    # Pre-hash with SHA-256 to handle passwords longer than 72 bytes
+    pre_hashed = hashlib.sha256(password.encode()).hexdigest()
+    # Hash with bcrypt (requires bytes)
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pre_hashed.encode(), salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    """
+    Verify password using bcrypt with pre-hashing for backward compatibility.
+    """
+    # Try with pre-hashing (new method)
+    try:
+        pre_hashed = hashlib.sha256(plain.encode()).hexdigest()
+        return bcrypt.checkpw(pre_hashed.encode(), hashed.encode())
+    except Exception:
+        pass
+
+    # Try direct bcrypt (for backward compatibility with old hashes)
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except Exception:
+        pass
+
+    return False
 
 
 def create_access_token(data: dict) -> str:

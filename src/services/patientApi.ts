@@ -69,6 +69,7 @@ export const patientApi = {
         user_id: profile.userId,
         full_name: profile.fullName,
         age: profile.age,
+        gender: profile.gender,
         weight: profile.weight,
         height: profile.height,
         activity_level: profile.activityLevel,

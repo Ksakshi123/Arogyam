@@ -44,7 +44,7 @@ export async function register(
   const cleanEmail = email.trim().toLowerCase();
   const userName = profileData?.fullName || cleanEmail.split("@")[0];
 
-  // 1. Primary: Register on FastAPI PostgreSQL backend
+  // Register on FastAPI PostgreSQL backend (Neon only - no local fallback)
   try {
     const res = await apiClient<BackendAuthResponse>("/api/auth/register", {
       data: {
@@ -68,9 +68,6 @@ export async function register(
           fullName: userName,
         }).catch((err) => console.warn("Backend patient create warning:", err));
       }
-
-      // Mirror user in local SQLite
-      dbRegisterUser(cleanEmail, password);
 
       const localProfile: StoredProfile = {
         userId: strId,
@@ -103,43 +100,22 @@ export async function register(
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "";
+    // Handle specific backend errors
     if (msg.includes("already exists")) {
       return { success: false, error: "An account with this email already exists." };
     }
-    console.warn("Backend register fallback to local storage:", err);
+    if (msg.includes("Rate limit")) {
+      return { success: false, error: msg };
+    }
+    if (msg.includes("429")) {
+      return { success: false, error: "Too many registration attempts. Please wait and try again later." };
+    }
+    // Pass through any other backend error message
+    console.error("Backend register error:", err);
+    return { success: false, error: msg || "Registration failed. Please try again." };
   }
 
-  // 2. Fallback: Local SQLite persistence
-  const result = await dbRegisterUser(cleanEmail, password);
-  if (!result.success || !result.userId) {
-    return { success: false, error: result.error || "Registration failed" };
-  }
-
-  dbSetSession(result.userId);
-  const user = dbGetUser(result.userId)!;
-
-  let profile: StoredProfile | null = null;
-  if (profileData) {
-    profile = {
-      userId: result.userId,
-      fullName: userName,
-      age: profileData.age || 28,
-      gender: profileData.gender || "Other",
-      height: profileData.height || 170,
-      weight: profileData.weight || 65,
-      activityLevel: profileData.activityLevel || "Moderately Active",
-      wellnessGoals: profileData.wellnessGoals || ["General Wellness"],
-      dietPreference: profileData.dietPreference || "Vegetarian",
-      foodPreferences: profileData.foodPreferences || ["Prefer Indian Food"],
-      allergies: profileData.allergies || [],
-      foodRestrictions: profileData.foodRestrictions || [],
-      dislikedFoods: profileData.dislikedFoods || [],
-      joinedAt: new Date().toISOString(),
-    };
-    dbSaveProfile(profile);
-  }
-
-  return { success: true, user, profile: profile || undefined };
+  return { success: false, error: "Registration failed" };
 }
 
 export async function login(
@@ -151,7 +127,7 @@ export async function login(
 
   const cleanEmail = email.trim().toLowerCase();
 
-  // 1. Primary: Login via FastAPI backend
+  // Login via FastAPI backend (Neon PostgreSQL only - no local fallback)
   try {
     const res = await apiClient<BackendAuthResponse>("/api/auth/login", {
       data: {
@@ -179,19 +155,26 @@ export async function login(
       };
     }
   } catch (err: unknown) {
-    console.warn("Backend login fallback to local storage:", err);
+    const msg = err instanceof Error ? err.message : "";
+    // Handle specific backend errors
+    if (msg.includes("Incorrect email or password")) {
+      return { success: false, error: "Incorrect email or password" };
+    }
+    if (msg.includes("Rate limit")) {
+      return { success: false, error: msg };
+    }
+    if (msg.includes("429")) {
+      return { success: false, error: "Too many login attempts. Please wait and try again later." };
+    }
+    if (msg.includes("401") || msg.includes("404")) {
+      return { success: false, error: "Invalid email or password" };
+    }
+    // Pass through any other backend error message
+    console.error("Backend login error:", err);
+    return { success: false, error: msg || "An error occurred during login. Please try again." };
   }
 
-  // 2. Fallback: Local SQLite login
-  const result = await dbLoginUser(cleanEmail, password);
-  if (!result.success || !result.user) {
-    return { success: false, error: result.error || "Invalid email or password." };
-  }
-
-  dbSetSession(result.user.id);
-  const profile = dbGetProfile(result.user.id);
-
-  return { success: true, user: result.user, profile };
+  return { success: false, error: "Invalid email or password" };
 }
 
 export function logout(): void {

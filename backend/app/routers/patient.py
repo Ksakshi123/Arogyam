@@ -60,6 +60,7 @@ def create_patient(
     profile = PatientProfile(
         user_id=user_id,
         age=payload.age,
+        gender=payload.gender,
         weight=payload.weight,
         height=payload.height,
         activity_level=payload.activity_level or "Moderately Active",
